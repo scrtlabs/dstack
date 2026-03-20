@@ -605,7 +605,16 @@ impl Attestation {
 
         let mode = AttestationMode::detect()?;
         let runtime_events = if mode.is_composable() {
-            RuntimeEvent::read_all().context("Failed to read runtime events")?
+            let from_file = RuntimeEvent::read_all().unwrap_or_default();
+            if from_file.is_empty() {
+                cc_eventlog::tdx::read_event_log()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|e| e.to_runtime_event())
+                    .collect()
+            } else {
+                from_file
+            }
         } else if let Some(app_id) = app_id {
             vec![RuntimeEvent::new("app-id".to_string(), app_id.to_vec())]
         } else {
