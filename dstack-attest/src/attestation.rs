@@ -631,8 +631,14 @@ impl Attestation {
         let quote = match mode {
             AttestationMode::DstackTdx => {
                 let quote = tdx_attest::get_quote(report_data).context("Failed to get quote")?;
-                let event_log =
+                let mut event_log =
                     cc_eventlog::tdx::read_event_log().context("Failed to read event log")?;
+                // If runtime_events came from the legacy log path (older dstack-util),
+                // they won't be in event_log (which only reads the new path).
+                // Add them so that older KMS instances can verify RTMR3 from event_log alone.
+                if !runtime_events.is_empty() && !event_log.iter().any(|e| e.is_runtime_event()) {
+                    event_log.extend(runtime_events.iter().cloned().map(TdxEvent::from));
+                }
                 AttestationQuote::DstackTdx(TdxQuote { quote, event_log })
             }
             AttestationMode::DstackGcpTdx
