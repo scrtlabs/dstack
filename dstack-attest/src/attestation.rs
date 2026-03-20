@@ -720,11 +720,26 @@ impl Attestation {
         let td_report = tdx_report.report.as_td10().context("no td report")?;
         let replayed_rtmr = self.replay_runtime_events::<Sha384>(None);
         if replayed_rtmr != td_report.rt_mr3 {
-            bail!(
-                "RTMR3 mismatch, quoted: {}, replayed: {}",
-                hex::encode(td_report.rt_mr3),
-                hex::encode(replayed_rtmr)
-            );
+            // Fallback: if runtime_events.log was not written (e.g. initramfs
+            // uses an older dstack-util that predates the log file), verify
+            // RTMR3 by replaying the raw digest chain from the CCEL instead.
+            let ccel_ok = self.runtime_events.is_empty()
+                && self.tdx_quote().is_some_and(|q| {
+                    let mut mr = Sha384::zeros();
+                    for event in &q.event_log {
+                        if event.imr == 3 {
+                            mr = Sha384::hash((mr, event.digest.as_slice()));
+                        }
+                    }
+                    mr == td_report.rt_mr3
+                });
+            if !ccel_ok {
+                bail!(
+                    "RTMR3 mismatch, quoted: {}, replayed: {}",
+                    hex::encode(td_report.rt_mr3),
+                    hex::encode(replayed_rtmr)
+                );
+            }
         }
 
         if td_report.report_data != self.report_data[..] {
